@@ -1,0 +1,115 @@
+diff --git a/adb_mdns.cpp b/adb_mdns.cpp
+index bd5ff5d..972561e 100644
+--- a/adb_mdns.cpp
++++ b/adb_mdns.cpp
+@@ -19,6 +19,8 @@
+ #include "adb_mdns.h"
+ 
+ #include <algorithm>
++#include <atomic>
++#include <cstring>
+ #include <set>
+ 
+ #include <android-base/stringprintf.h>
+diff --git a/adb_mdns.h b/adb_mdns.h
+index 14fdc53..d603b53 100644
+--- a/adb_mdns.h
++++ b/adb_mdns.h
+@@ -16,6 +16,7 @@
+ 
+ #pragma once
+ 
++#include <cstdint>
+ #include <functional>
+ #include <optional>
+ #include <string>
+diff --git a/client/usb_linux.cpp b/client/usb_linux.cpp
+index 96d7a8a..3dbc3fd 100644
+--- a/client/usb_linux.cpp
++++ b/client/usb_linux.cpp
+@@ -57,6 +57,17 @@ using namespace std::literals;
+ /* usb scan debugging is waaaay too verbose */
+ #define DBGX(x...)
+ 
++// GCC 15 errors on flexible array members not at end of struct.
++// usbdevfs_urb has a zero-length flexible array that is never used.
++// Wrap it in an aligned byte buffer to avoid the error.
++struct urb_storage {
++    alignas(usbdevfs_urb) char buf[sizeof(usbdevfs_urb)];
++    urb_storage() { memset(buf, 0, sizeof(buf)); }
++    usbdevfs_urb* get() { return reinterpret_cast<usbdevfs_urb*>(buf); }
++    usbdevfs_urb* operator->() { return get(); }
++    usbdevfs_urb& operator*() { return *get(); }
++};
++
+ struct usb_handle {
+     ~usb_handle() {
+         if (fd != -1) unix_close(fd);
+@@ -71,14 +82,8 @@ struct usb_handle {
+     unsigned zero_mask;
+     unsigned writeable = 1;
+ 
+-    // The usbdevfs_urb structure ends in a variable length array of
+-    // usbdevfs_iso_packet_desc. Since none of the usb calls ever attempt
+-    // to fill in those values, ignore this warning.
+-#pragma clang diagnostic push
+-#pragma clang diagnostic ignored "-Wgnu-variable-sized-type-not-at-end"
+-    usbdevfs_urb urb_in;
+-    usbdevfs_urb urb_out;
+-#pragma clang diagnostic pop
++    urb_storage urb_in;
++    urb_storage urb_out;
+ 
+     bool urb_in_busy = false;
+     bool urb_out_busy = false;
+@@ -316,7 +321,7 @@ static int usb_bulk_write(usb_handle* h, const void* data, int len) {
+     std::unique_lock<std::mutex> lock(h->mutex);
+     D("++ usb_bulk_write ++");
+ 
+-    usbdevfs_urb* urb = &h->urb_out;
++    usbdevfs_urb* urb = h->urb_out.get();
+     memset(urb, 0, sizeof(*urb));
+     urb->type = USBDEVFS_URB_TYPE_BULK;
+     urb->endpoint = h->ep_out;
+@@ -355,7 +360,7 @@ static int usb_bulk_read(usb_handle* h, void* data, int len) {
+     std::unique_lock<std::mutex> lock(h->mutex);
+     D("++ usb_bulk_read ++");
+ 
+-    usbdevfs_urb* urb = &h->urb_in;
++    usbdevfs_urb* urb = h->urb_in.get();
+     memset(urb, 0, sizeof(*urb));
+     urb->type = USBDEVFS_URB_TYPE_BULK;
+     urb->endpoint = h->ep_in;
+@@ -400,7 +405,7 @@ static int usb_bulk_read(usb_handle* h, void* data, int len) {
+         }
+         D("[ urb @%p status = %d, actual = %d ]", out, out->status, out->actual_length);
+ 
+-        if (out == &h->urb_in) {
++        if (out == h->urb_in.get()) {
+             D("[ reap urb - IN complete ]");
+             h->urb_in_busy = false;
+             if (urb->status != 0) {
+@@ -409,7 +414,7 @@ static int usb_bulk_read(usb_handle* h, void* data, int len) {
+             }
+             return urb->actual_length;
+         }
+-        if (out == &h->urb_out) {
++        if (out == h->urb_out.get()) {
+             D("[ reap urb - OUT compelete ]");
+             h->urb_out_busy = false;
+             h->cv.notify_all();
+@@ -513,10 +518,10 @@ void usb_kick(usb_handle* h) {
+             ** but this ensures that a reader blocked on REAPURB
+             ** will get unblocked
+             */
+-            ioctl(h->fd, USBDEVFS_DISCARDURB, &h->urb_in);
+-            ioctl(h->fd, USBDEVFS_DISCARDURB, &h->urb_out);
+-            h->urb_in.status = -ENODEV;
+-            h->urb_out.status = -ENODEV;
++            ioctl(h->fd, USBDEVFS_DISCARDURB, h->urb_in.get());
++            ioctl(h->fd, USBDEVFS_DISCARDURB, h->urb_out.get());
++            h->urb_in->status = -ENODEV;
++            h->urb_out->status = -ENODEV;
+             h->urb_in_busy = false;
+             h->urb_out_busy = false;
+             h->cv.notify_all();

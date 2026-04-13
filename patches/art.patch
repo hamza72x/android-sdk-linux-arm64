@@ -1,0 +1,44 @@
+diff --git a/dexdump/dexdump.cc b/dexdump/dexdump.cc
+index e8af600..2106e46 100644
+--- a/dexdump/dexdump.cc
++++ b/dexdump/dexdump.cc
+@@ -466,7 +466,9 @@ static size_t utf8Bytes(char start_byte) {
+ /*
+  * Dumps a string as an XML attribute value.
+  */
+-static void dumpXmlAttribute(std::string_view p) __attribute__((optnone)) {
++// NOTE: optnone/optimize("O0") attribute removed for GCC compatibility.
++// The attribute was a workaround for a Clang optimizer bug.
++static void dumpXmlAttribute(std::string_view p) {
+   for (const char* c = p.begin(); c < p.end(); ++c) {
+     if (std::isprint(*c)) {
+       switch (*c) {
+diff --git a/libartbase/base/time_utils.cc b/libartbase/base/time_utils.cc
+index b26e0ef..443dc40 100644
+--- a/libartbase/base/time_utils.cc
++++ b/libartbase/base/time_utils.cc
+@@ -16,6 +16,12 @@
+ 
+ #define _POSIX_THREAD_SAFE_FUNCTIONS  // For mingw localtime_r().
+ 
++#ifndef __ANDROID__
++#ifndef __APPLE__
++#define __builtin_available(...) false
++#endif
++#endif
++
+ #include "time_utils.h"
+ 
+ #include <inttypes.h>
+diff --git a/libartbase/base/time_utils.h b/libartbase/base/time_utils.h
+index dd73b1c..a180bbe 100644
+--- a/libartbase/base/time_utils.h
++++ b/libartbase/base/time_utils.h
+@@ -24,6 +24,7 @@
+ #include <time.h>
+ 
+ #include <cstdint>
++#include <limits>
+ #include <string>
+ 
+ namespace art {

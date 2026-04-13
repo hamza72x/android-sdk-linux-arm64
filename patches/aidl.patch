@@ -1,0 +1,21 @@
+diff --git a/code_writer.h b/code_writer.h
+index 7d2a265..a47ba5b 100644
+--- a/code_writer.h
++++ b/code_writer.h
+@@ -44,14 +44,14 @@ class CodeWriter {
+   // Write a formatted string to this writer in the usual printf sense.
+   // Returns false on error.
+   template <typename... Args>
+-  bool Write(const char* format, Args... args) __attribute__((format(printf, 2, 0))) {
++  bool Write(const char* format, Args... args) {
+     std::string formatted;
+     android::base::StringAppendF(&formatted, format, args...);
+ 
+     return WriteString(formatted);
+   }
+ 
+-  template <>
++  // Specialization for plain string writes (no formatting).
+   bool Write(const char* str) {
+     return WriteString(str);
+   }

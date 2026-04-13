@@ -1,0 +1,33 @@
+diff --git a/include/android-base/thread_annotations.h b/include/android-base/thread_annotations.h
+index 53fe6da..fde7c9b 100644
+--- a/include/android-base/thread_annotations.h
++++ b/include/android-base/thread_annotations.h
+@@ -18,7 +18,14 @@
+ 
+ #include <mutex>
+ 
++// Thread safety annotations are only fully supported by Clang.
++// GCC recognizes the attribute syntax but doesn't understand the arguments
++// (like function calls in GUARDED_BY), causing compilation errors.
++#if defined(__clang__)
+ #define THREAD_ANNOTATION_ATTRIBUTE__(x) __attribute__((x))
++#else
++#define THREAD_ANNOTATION_ATTRIBUTE__(x)
++#endif
+ 
+ #define CAPABILITY(x) \
+       THREAD_ANNOTATION_ATTRIBUTE__(capability(x))
+diff --git a/logging.cpp b/logging.cpp
+index 51f0ef9..f738468 100644
+--- a/logging.cpp
++++ b/logging.cpp
+@@ -48,6 +48,9 @@
+ #else
+ #include <sys/types.h>
+ #include <unistd.h>
++// __builtin_available(android X, *) is a Clang built-in for Android API level checks.
++// On non-Android Linux, these code paths should always take the fallback (else) branch.
++#define __builtin_available(...) false
+ #endif
+ 
+ #include <android-base/file.h>

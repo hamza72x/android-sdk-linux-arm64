@@ -1,0 +1,13 @@
+diff --git a/tools/zipalign/ZipFile.cpp b/tools/zipalign/ZipFile.cpp
+index 42cc349..6b0a49e 100644
+--- a/tools/zipalign/ZipFile.cpp
++++ b/tools/zipalign/ZipFile.cpp
+@@ -35,7 +35,7 @@
+ #include <assert.h>
+ #include <inttypes.h>
+ 
+-_Static_assert(sizeof(off_t) == 8, "off_t too small");
++static_assert(sizeof(off_t) == 8, "off_t too small");
+ 
+ namespace android {
+ 

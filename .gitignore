@@ -1,0 +1,16 @@
+# AOSP source clones
+src/
+
+# Build output
+build/
+
+# Editor/IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

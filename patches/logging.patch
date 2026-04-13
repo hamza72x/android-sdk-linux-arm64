@@ -1,0 +1,76 @@
+diff --git a/liblog/logd_writer.cpp b/liblog/logd_writer.cpp
+index 3d5cee6..fdd5d08 100644
+--- a/liblog/logd_writer.cpp
++++ b/liblog/logd_writer.cpp
+@@ -21,7 +21,7 @@
+ #include <inttypes.h>
+ #include <poll.h>
+ #include <stdarg.h>
+-#include <stdatomic.h>
++#include <atomic>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -32,6 +32,12 @@
+ #include <time.h>
+ #include <unistd.h>
+ 
++// C11 atomic compat for C++ compilation (AOSP code uses C11 atomic names)
++using std::atomic_int;
++using std::atomic_exchange_explicit;
++using std::atomic_fetch_add_explicit;
++using std::memory_order_relaxed;
++
+ #include <private/android_filesystem_config.h>
+ #include <private/android_logger.h>
+ 
+diff --git a/liblog/logger.h b/liblog/logger.h
+index ddff19d..65c9b22 100644
+--- a/liblog/logger.h
++++ b/liblog/logger.h
+@@ -16,7 +16,11 @@
+ 
+ #pragma once
+ 
++#ifdef __cplusplus
++#include <atomic>
++#else
+ #include <stdatomic.h>
++#endif
+ #include <sys/cdefs.h>
+ 
+ #include <log/log.h>
+@@ -26,7 +30,11 @@
+ __BEGIN_DECLS
+ 
+ struct logger_list {
++#ifdef __cplusplus
++  std::atomic<int> fd;
++#else
+   atomic_int fd;
++#endif
+   int mode;
+   unsigned int tail;
+   log_time start;
+diff --git a/liblog/pmsg_writer.cpp b/liblog/pmsg_writer.cpp
+index 1cf8f96..4c98bfa 100644
+--- a/liblog/pmsg_writer.cpp
++++ b/liblog/pmsg_writer.cpp
+@@ -16,6 +16,7 @@
+ 
+ #include "pmsg_writer.h"
+ 
++#include <atomic>
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <stdlib.h>
+@@ -23,6 +24,9 @@
+ #include <sys/types.h>
+ #include <time.h>
+ 
++// C11 atomic compat for C++ compilation
++using std::atomic_int;
++
+ #include <log/log_properties.h>
+ #include <private/android_logger.h>
+ 

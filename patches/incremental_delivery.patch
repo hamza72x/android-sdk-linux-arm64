@@ -1,0 +1,71 @@
+diff --git a/incfs/include/path.h b/incfs/include/path.h
+index 62f8b54..2d77aa4 100644
+--- a/incfs/include/path.h
++++ b/incfs/include/path.h
+@@ -17,6 +17,7 @@
+ #pragma once
+ 
+ #include <iterator>
++#include <memory>
+ #include <optional>
+ #include <string>
+ #include <string_view>
+diff --git a/incfs/util/include/util/map_ptr.h b/incfs/util/include/util/map_ptr.h
+index 9a6aebf..1db95a3 100644
+--- a/incfs/util/include/util/map_ptr.h
++++ b/incfs/util/include/util/map_ptr.h
+@@ -186,12 +186,32 @@ public:
+             return *this;
+         }
+ 
++        const_iterator& operator-=(int n) {
++            safe_ptr_ = safe_ptr_ - n;
++            return *this;
++        }
++
++        bool operator<(const const_iterator& other) const {
++            return safe_ptr_ < other.safe_ptr_;
++        }
++
+         const const_iterator operator++(int) {
+             const_iterator temp(*this);
+             safe_ptr_++;
+             return temp;
+         }
+ 
++        const const_iterator& operator--() {
++            safe_ptr_--;
++            return *this;
++        }
++
++        const const_iterator operator--(int) {
++            const_iterator temp(*this);
++            safe_ptr_--;
++            return temp;
++        }
++
+     private:
+         explicit const_iterator(const map_ptr<T>& ptr) : safe_ptr_(ptr) {}
+         map_ptr<T> safe_ptr_;
+@@ -322,6 +342,21 @@ public:
+         return temp;
+     }
+ 
++    template <typename T1 = T, NotVoid<T1> = 0>
++    const map_ptr<T1>& operator--() {
++        LIBINCFS_MAP_PTR_DEBUG_CODE(verified_ = false);
++        --ptr_;
++        return *this;
++    }
++
++    template <typename T1 = T, NotVoid<T1> = 0>
++    const map_ptr<T1> operator--(int) {
++        map_ptr<T1> temp = *this;
++        LIBINCFS_MAP_PTR_DEBUG_CODE(verified_ = false);
++        --ptr_;
++        return temp;
++    }
++
+     template <typename S, typename T1 = T, NotVoid<T1> = 0>
+     map_ptr<T1> operator+(const S n) const {
+         return map_ptr<T1>(map_, ptr_ + n, verified_block_);

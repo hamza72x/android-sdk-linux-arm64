@@ -1,0 +1,39 @@
+diff --git a/discovery/dnssd/public/dns_sd_txt_record.h b/discovery/dnssd/public/dns_sd_txt_record.h
+index edf2c78..c23a927 100644
+--- a/discovery/dnssd/public/dns_sd_txt_record.h
++++ b/discovery/dnssd/public/dns_sd_txt_record.h
+@@ -5,6 +5,7 @@
+ #ifndef DISCOVERY_DNSSD_PUBLIC_DNS_SD_TXT_RECORD_H_
+ #define DISCOVERY_DNSSD_PUBLIC_DNS_SD_TXT_RECORD_H_
+ 
++#include <cstdint>
+ #include <functional>
+ #include <map>
+ #include <set>
+diff --git a/platform/api/task_runner.h b/platform/api/task_runner.h
+index 948eb08..d50234c 100644
+--- a/platform/api/task_runner.h
++++ b/platform/api/task_runner.h
+@@ -24,7 +24,8 @@ class TaskRunner {
+  public:
+ // Seem to get an error using clang when compiling with -fno-exceptions:
+ //   error: implicit instantiation of undefined template 'std::__1::packaged_task<void () noexcept>'
+-#if __has_feature(cxx_exceptions)
++// GCC's std::packaged_task also doesn't support noexcept function types.
++#if defined(__clang__) && __has_feature(cxx_exceptions)
+   using Task = std::packaged_task<void() noexcept>;
+ #else
+   using Task = std::packaged_task<void()>;
+diff --git a/platform/impl/network_interface.cc b/platform/impl/network_interface.cc
+index 00809f3..82a1a99 100644
+--- a/platform/impl/network_interface.cc
++++ b/platform/impl/network_interface.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "platform/impl/network_interface.h"
+ 
++#include <algorithm>
++
+ namespace openscreen {
+ 
+ std::vector<InterfaceInfo> GetNetworkInterfaces() {
