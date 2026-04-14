@@ -1,5 +1,12 @@
 {
   "build-tools": {
+    "37.0.0": {
+      "status": "verified",
+      "aosp_tag": "platform-tools-35.0.2",
+      "release": "v37.0.0",
+      "tested_on": "Fedora Asahi 43, GCC 15.2.1",
+      "notes": "Uses same AOSP source as 35.0.2 (no platform-tools-37.0.0 tag in AOSP)"
+    },
     "35.0.2": {
       "status": "verified",
       "aosp_tag": "platform-tools-35.0.2",
@@ -24,6 +31,13 @@
     }
   },
   "platform-tools": {
+    "37.0.0": {
+      "status": "verified",
+      "aosp_tag": "platform-tools-35.0.2",
+      "release": "v37.0.0",
+      "tested_on": "Fedora Asahi 43, GCC 15.2.1",
+      "notes": "Uses same AOSP source as 35.0.2 (no platform-tools-37.0.0 tag in AOSP)"
+    },
     "35.0.2": {
       "status": "verified",
       "aosp_tag": "platform-tools-35.0.2",

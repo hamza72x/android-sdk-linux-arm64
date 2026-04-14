@@ -51,15 +51,26 @@ jobs:
         id: version
         run: |
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            # Tag push: derive everything from the tag name
             TAG="${{ github.ref_name }}"
             VERSION="${TAG#v}"
-            AOSP_TAG="platform-tools-${VERSION}"
           else
-            # Manual dispatch: use inputs
             VERSION="${{ inputs.version }}"
+          fi
+
+          # Look up AOSP tag from versions.json
+          AOSP_TAG=$(python3 -c "import json; d=json.load(open('versions.json')); t=d.get('build-tools',{}).get('$VERSION',{}).get('aosp_tag','') or d.get('platform-tools',{}).get('$VERSION',{}).get('aosp_tag',''); print(t)" 2>/dev/null || echo "")
+
+          # Manual override (for manual dispatch)
+          if [[ -n "${{ inputs.aosp_tag }}" ]]; then
             AOSP_TAG="${{ inputs.aosp_tag }}"
           fi
+
+          # Fallback if not found
+          if [[ -z "$AOSP_TAG" ]]; then
+            AOSP_TAG="platform-tools-${VERSION}"
+            echo "::warning::No AOSP tag in versions.json for ${VERSION}, using fallback: ${AOSP_TAG}"
+          fi
+
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "aosp_tag=${AOSP_TAG}" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
@@ -103,14 +114,16 @@ jobs:
       # ── Build all SDK tools ──
       - name: Build SDK tools
         run: |
-          python3 build.py --protoc="$PROTOC"
+          VERSION="${{ steps.version.outputs.version }}"
+          python3 build.py --protoc="$PROTOC" --build="build/${VERSION}"
+          echo "BUILD_BIN=$(pwd)/build/${VERSION}/bin" >> "$GITHUB_ENV"
 
       # ── Verify binaries ──
       - name: Verify binaries
         run: |
           echo "=== Checking binaries ==="
           for bin in $BUILD_TOOLS_BINS $PLATFORM_TOOLS_BINS veridex; do
-            path="build/bin/${bin}"
+            path="${BUILD_BIN}/${bin}"
             if [[ -x "$path" ]]; then
               ftype=$(file -b "$path")
               if [[ "$ftype" != *"aarch64"* && "$ftype" != *"ARM aarch64"* ]]; then
@@ -136,7 +149,7 @@ jobs:
           BT_DIR="${STAGING}/build-tools"
           mkdir -p "$BT_DIR"
           for bin in $BUILD_TOOLS_BINS; do
-            cp "build/bin/${bin}" "$BT_DIR/"
+            cp "${BUILD_BIN}/${bin}" "$BT_DIR/"
             chmod +x "$BT_DIR/${bin}"
           done
           BT_TAR="android-sdk-linux-arm64-build-tools-${VERSION}.tar.gz"
@@ -148,7 +161,7 @@ jobs:
           PT_DIR="${STAGING}/platform-tools"
           mkdir -p "$PT_DIR"
           for bin in $PLATFORM_TOOLS_BINS; do
-            cp "build/bin/${bin}" "$PT_DIR/"
+            cp "${BUILD_BIN}/${bin}" "$PT_DIR/"
             chmod +x "$PT_DIR/${bin}"
           done
           PT_TAR="android-sdk-linux-arm64-platform-tools-${VERSION}.tar.gz"
@@ -160,12 +173,12 @@ jobs:
           ALL_DIR="${STAGING}/bin"
           mkdir -p "$ALL_DIR"
           for bin in $BUILD_TOOLS_BINS $PLATFORM_TOOLS_BINS; do
-            cp "build/bin/${bin}" "$ALL_DIR/"
+            cp "${BUILD_BIN}/${bin}" "$ALL_DIR/"
             chmod +x "$ALL_DIR/${bin}"
           done
           # Include veridex too
-          if [[ -x "build/bin/veridex" ]]; then
-            cp "build/bin/veridex" "$ALL_DIR/"
+          if [[ -x "${BUILD_BIN}/veridex" ]]; then
+            cp "${BUILD_BIN}/veridex" "$ALL_DIR/"
             chmod +x "$ALL_DIR/veridex"
           fi
           ALL_TAR="android-sdk-linux-arm64-v${VERSION}.tar.gz"

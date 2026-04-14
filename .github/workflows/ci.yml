@@ -25,14 +25,22 @@ jobs:
     strategy:
       matrix:
         # Only verified versions — update this list when new versions are verified
-        version: ["35.0.2"]
-        include:
-          - version: "35.0.2"
-            aosp_tag: "platform-tools-35.0.2"
+        version: ["37.0.0", "35.0.2"]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve AOSP tag
+        id: resolve
+        run: |
+          AOSP_TAG=$(python3 -c "import json; d=json.load(open('versions.json')); t=d.get('build-tools',{}).get('${{ matrix.version }}',{}).get('aosp_tag','') or d.get('platform-tools',{}).get('${{ matrix.version }}',{}).get('aosp_tag',''); print(t)" 2>/dev/null || echo "")
+          if [[ -z "$AOSP_TAG" ]]; then
+            AOSP_TAG="platform-tools-${{ matrix.version }}"
+            echo "::warning::No AOSP tag in versions.json, using fallback: ${AOSP_TAG}"
+          fi
+          echo "aosp_tag=${AOSP_TAG}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Version ${{ matrix.version }} → AOSP tag ${AOSP_TAG}"
 
       - name: Install dependencies
         run: |
@@ -45,7 +53,7 @@ jobs:
       - name: Clone AOSP sources
         run: |
           python3 get_source.py \
-            --tags "${{ matrix.aosp_tag }}" \
+            --tags "${{ steps.resolve.outputs.aosp_tag }}" \
             --component build-tools \
             --version "${{ matrix.version }}"
 
@@ -66,14 +74,18 @@ jobs:
 
       - name: Build SDK tools
         run: |
-          python3 build.py --protoc="$(pwd)/src/protobuf/build/protoc"
+          VERSION="${{ matrix.version }}"
+          python3 build.py \
+            --protoc="$(pwd)/src/protobuf/build/protoc" \
+            --build="build/${VERSION}"
 
       - name: Verify binaries are ARM64
         run: |
-          echo "=== Verifying ${{ matrix.version }} ==="
+          VERSION="${{ matrix.version }}"
+          echo "=== Verifying ${VERSION} ==="
           failed=0
           for bin in $BUILD_TOOLS_BINS $PLATFORM_TOOLS_BINS veridex; do
-            path="build/bin/${bin}"
+            path="build/${VERSION}/bin/${bin}"
             if [[ -x "$path" ]]; then
               ftype=$(file -b "$path")
               if [[ "$ftype" == *"aarch64"* || "$ftype" == *"ARM aarch64"* ]]; then

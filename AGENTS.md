@@ -150,19 +150,22 @@ cmake -GNinja -Dprotobuf_BUILD_TESTS=OFF ..
 ninja -j$(nproc)
 cd ../../..
 
-# Build all tools
-python3 build.py --protoc=$(pwd)/src/protobuf/build/protoc
+# Build all tools (versioned build dir)
+python3 build.py --protoc=$(pwd)/src/protobuf/build/protoc \
+    --build=build/build-tools-35.0.2
 ```
 
 ### Build Single Target
 ```bash
-python3 build.py --protoc=$(pwd)/src/protobuf/build/protoc --target=aapt2
+python3 build.py --protoc=$(pwd)/src/protobuf/build/protoc \
+    --build=build/build-tools-35.0.2 --target=aapt2
 ```
 
 ### Clean Build
 ```bash
-rm -rf build/
-python3 build.py --protoc=$(pwd)/src/protobuf/build/protoc
+rm -rf build/build-tools-35.0.2/
+python3 build.py --protoc=$(pwd)/src/protobuf/build/protoc \
+    --build=build/build-tools-35.0.2
 ```
 
 ## Dependencies (Build Host)
@@ -200,7 +203,7 @@ sudo apt install gcc g++ cmake ninja-build git python3 golang bison flex \
 
 ## Output Binaries
 
-After a successful build, all binaries are in `build/bin/` (flat directory):
+After a successful build, all binaries are in `build/<component>-<version>/bin/` (flat directory):
 
 ### build-tools
 | Binary | Description |
@@ -332,10 +335,10 @@ deployagent.inc, deployagentscript.inc, etc:
 
 ```bash
 # Check it's a native Linux ARM64 binary
-file build/bin/aapt2
+file build/build-tools-35.0.2/bin/aapt2
 # Expected: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), dynamically linked ...
 
 # Check it runs
-./build/bin/aapt2 version
-./build/bin/adb version
+./build/build-tools-35.0.2/bin/aapt2 version
+./build/build-tools-35.0.2/bin/adb version
 ```

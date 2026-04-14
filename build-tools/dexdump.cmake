@@ -82,7 +82,7 @@ add_library(libdexfile STATIC
     ${SRC}/art/libdexfile/dex/standard_dex_file.cc
     ${SRC}/art/libdexfile/dex/type_lookup_table.cc
     ${SRC}/art/libdexfile/dex/utf.cc
-    ${CMAKE_SOURCE_DIR}/patches/misc/dex_operator_out.cc
+    ${SRC}/art/libdexfile/dex/dex_operator_out.cc
     )
 target_include_directories(libdexfile PRIVATE ${INCLUDES})
 target_compile_definitions(libdexfile PRIVATE ${ART_DEFS})

@@ -15,7 +15,17 @@ import shutil
 import argparse
 import subprocess
 import json
+import time
 from pathlib import Path
+
+# ANSI colors
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+BLUE = "\033[0;34m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+NC = "\033[0m"
 
 
 def resolve_patch(patch_file, component=None, version=None):
@@ -44,6 +54,34 @@ def resolve_misc(misc_file, component=None, version=None):
         return base
 
     return None
+
+
+def reset_repo(repo_dir):
+    """Reset a repo to its clean cloned state (undo patches, remove untracked files)."""
+    repo_path = Path("src") / repo_dir
+    if not repo_path.exists():
+        return
+
+    # Show current state briefly
+    result = subprocess.run(
+        "git log --oneline -1 --decorate",
+        shell=True, cwd=str(repo_path),
+        capture_output=True, text=True,
+    )
+    ref = result.stdout.strip() if result.returncode == 0 else "unknown"
+
+    # Check if dirty
+    result = subprocess.run(
+        "git diff --quiet HEAD",
+        shell=True, cwd=str(repo_path),
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print("  Resetting src/{} ({})".format(repo_dir, ref))
+        subprocess.run("git checkout .", shell=True, cwd=str(repo_path),
+                       capture_output=True)
+        subprocess.run("git clean -fd", shell=True, cwd=str(repo_path),
+                       capture_output=True)
 
 
 def apply_patch(repo_dir, patch_file, component=None, version=None):
@@ -83,7 +121,31 @@ def patches(component=None, version=None):
     print("Patch resolution: version-specific ({}/{}) -> base".format(
         component or "*", version or "*"))
 
+    # ── Git diff patches ──
+    # These fix GCC / Linux glibc compatibility issues in AOSP source code.
+
+    patch_map = [
+        ("libbase",              "libbase.patch"),
+        ("logging",              "logging.patch"),
+        ("core",                 "core.patch"),
+        ("base",                 "base.patch"),
+        ("incremental_delivery", "incremental_delivery.patch"),
+        ("openscreen",           "openscreen.patch"),
+        ("adb",                  "adb.patch"),
+        ("aidl",                 "aidl.patch"),
+        ("build",                "build.patch"),
+        ("art",                  "art.patch"),
+    ]
+
+    # Reset repos to clean state before applying (so switching versions works)
+    print("\nResetting patched repos to clean state...")
+    for repo_dir, _ in patch_map:
+        reset_repo(repo_dir)
+    # Also reset abseil-cpp (sed fixup modifies it)
+    reset_repo("abseil-cpp")
+
     # ── Pre-generated files ──
+    # (must come after reset, since git clean removes untracked files)
 
     # Incremental delivery sysprop
     inc = Path.cwd() / "src/incremental_delivery/sysprop/include"
@@ -121,6 +183,13 @@ def patches(component=None, version=None):
     if src_file:
         shutil.copy2(src_file, protobuf_build / "config.h")
 
+    # dex_operator_out.cc (pre-generated operator<< for ART enums)
+    art_dex_dir = Path("src/art/libdexfile/dex")
+    if art_dex_dir.exists():
+        src_file = resolve_misc("dex_operator_out.cc", component, version)
+        if src_file:
+            shutil.copy2(src_file, art_dex_dir)
+
     # ── Sed-based fixups ──
 
     # Fix googletest path in abseil-cpp
@@ -137,21 +206,7 @@ def patches(component=None, version=None):
     if src.exists() and not dest.exists():
         subprocess.run("ln -sf {} {}".format(src, dest), shell=True)
 
-    # ── Git diff patches ──
-    # These fix GCC / Linux glibc compatibility issues in AOSP source code.
-
-    patch_map = [
-        ("libbase",              "libbase.patch"),
-        ("logging",              "logging.patch"),
-        ("core",                 "core.patch"),
-        ("base",                 "base.patch"),
-        ("incremental_delivery", "incremental_delivery.patch"),
-        ("openscreen",           "openscreen.patch"),
-        ("adb",                  "adb.patch"),
-        ("aidl",                 "aidl.patch"),
-        ("build",                "build.patch"),
-        ("art",                  "art.patch"),
-    ]
+    # ── Apply git patches ──
 
     for repo_dir, patch_file in patch_map:
         apply_patch(repo_dir, patch_file, component, version)
@@ -166,6 +221,41 @@ def check(command):
     except subprocess.CalledProcessError:
         print("ERROR: required command '{}' not found. Please install it.".format(command))
         exit(1)
+
+
+def get_repo_tag(repo_path):
+    """Get the tag or branch that a repo is checked out to."""
+    result = subprocess.run(
+        "git describe --tags --exact-match HEAD",
+        shell=True, cwd=str(repo_path),
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        return result.stdout.strip()
+
+    # No exact tag match — try branch name
+    result = subprocess.run(
+        "git rev-parse --abbrev-ref HEAD",
+        shell=True, cwd=str(repo_path),
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        return result.stdout.strip()
+
+    return "unknown"
+
+
+def verify_repos(repos, expected_tag):
+    """Verify all repos are on the expected tag. Returns list of mismatched repos."""
+    mismatched = []
+    for repo in repos:
+        repo_path = Path(repo["path"])
+        if not repo_path.exists():
+            continue
+        actual_tag = get_repo_tag(repo_path)
+        if actual_tag != expected_tag:
+            mismatched.append((repo["path"], actual_tag))
+    return mismatched
 
 
 def main():
@@ -210,6 +300,66 @@ def main():
                 print("WARNING: Failed to clone {}".format(repo["url"]))
         else:
             print("Already exists: {}".format(repo["path"]))
+
+    # Verify all repos are on the expected tag
+    print("\n{}Verifying source tag: {}{}{}".format(BOLD, GREEN, args.tags, NC))
+    mismatched = verify_repos(repos, args.tags)
+    if mismatched:
+        print("\n{}Tag mismatch detected!{} Expected: {}{}{}".format(
+            YELLOW, NC, BOLD, args.tags, NC))
+        for path, actual in mismatched:
+            print("  {} is on {}{}{}".format(path, RED, actual, NC))
+        print("\nRe-cloning mismatched repos...")
+        unavailable = set()  # repos where the tag doesn't exist
+        for path, _ in mismatched:
+            url = next(r["url"] for r in repos if r["path"] == path)
+            backup = path + ".old"
+            # Move old repo aside (safe: if clone fails, we restore it)
+            if Path(path).exists():
+                if Path(backup).exists():
+                    shutil.rmtree(backup, ignore_errors=True)
+                os.rename(path, backup)
+            print("  Cloning {} -> {}".format(url, path))
+            result = subprocess.run(
+                "git clone -c advice.detachedHead=false --depth 1 --branch {} {} {}".format(
+                    args.tags, url, path
+                ),
+                shell=True,
+            )
+            if result.returncode != 0:
+                # Tag may not exist on this repo — not all AOSP repos have every tag.
+                # Restore the old repo so we don't lose source.
+                if Path(backup).exists():
+                    if Path(path).exists():
+                        shutil.rmtree(path, ignore_errors=True)
+                    os.rename(backup, path)
+                    print("  {}WARNING: Tag {} not available, keeping existing checkout{}".format(
+                        YELLOW, args.tags, NC))
+                else:
+                    print("  {}WARNING: Tag {} not available for {}, skipping{}".format(
+                        YELLOW, args.tags, url, NC))
+                unavailable.add(path)
+            else:
+                # Clone succeeded — remove old backup
+                if Path(backup).exists():
+                    shutil.rmtree(backup, ignore_errors=True)
+
+        # Verify again after re-clone (excluding repos where the tag doesn't exist)
+        still_mismatched = verify_repos(repos, args.tags)
+        still_mismatched = [(p, t) for p, t in still_mismatched if p not in unavailable]
+        if still_mismatched:
+            print("\n{}ERROR: Repos still on wrong tag after re-clone:{}".format(RED, NC))
+            for path, actual in still_mismatched:
+                print("  {} is on {}".format(path, actual))
+            exit(1)
+
+    # Count repos on the expected tag
+    existing = [r for r in repos if Path(r["path"]).exists()]
+    on_tag = sum(1 for r in existing if get_repo_tag(Path(r["path"])) == args.tags)
+    print("\n  {}Source tag: {}{}{}".format(DIM, GREEN, args.tags, NC))
+    print("  {}Repos:     {}/{} on tag, {} total{}".format(
+        DIM, on_tag, len(existing), len(repos), NC))
+    time.sleep(1)
 
     # Apply patches
     print("\nApplying patches...")

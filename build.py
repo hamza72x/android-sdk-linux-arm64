@@ -8,6 +8,7 @@
 #
 
 import os
+import sys
 import time
 import shutil
 import argparse
@@ -53,7 +54,7 @@ def build(args):
     result = subprocess.run(command)
     if result.returncode != 0:
         print("\033[1;31mCMake configure failed!\033[0m")
-        return
+        sys.exit(1)
 
     # Ensure protobuf config.h exists in build directory
     # (AOSP's protobuf common.cc includes "config.h" which must be on the include path)
@@ -92,6 +93,7 @@ def build(args):
                     print("  {}: {:.1f} MB".format(f.name, size_mb))
     else:
         print("\n\033[1;31mBuild failed!\033[0m")
+        sys.exit(1)
 
 
 def main():

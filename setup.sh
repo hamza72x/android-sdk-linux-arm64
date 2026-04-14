@@ -1144,11 +1144,13 @@ build_tools_from_source() {
             || die "Failed to clone repository."
     fi
 
+    local versioned_build="${build_dir}/build/${component}-${version}"
+
     echo ""
     echo "  AOSP tag:    ${aosp_tag}"
     echo "  Source dir:  ${build_dir}/src/ (~2-4 GB)"
-    echo "  Build dir:   ${build_dir}/build/"
-    echo "  Output:      ${build_dir}/build/bin/ (flat)"
+    echo "  Build dir:   ${versioned_build}/"
+    echo "  Output:      ${versioned_build}/bin/ (flat)"
     echo ""
 
     # Clone AOSP sources
@@ -1189,11 +1191,13 @@ build_tools_from_source() {
 
     # Build all tools
     info "Building SDK tools..."
-    python3 "${build_dir}/build.py" --protoc="$protoc_path" \
+    python3 "${build_dir}/build.py" \
+        --protoc="$protoc_path" \
+        --build="$versioned_build" \
         || die "Build failed."
 
     # Install binaries
-    local build_bin="${build_dir}/build/bin"
+    local build_bin="${versioned_build}/bin"
     [[ -d "$build_bin" ]] || die "Build output not found at ${build_bin}"
 
     if [[ "$component" == "build-tools" ]]; then

@@ -91,6 +91,8 @@ python3 get_source.py --tags platform-tools-35.0.2 \
 
 This clones ~38 repos into `src/` and applies patches from `patches/`. The `--component` and `--version` flags control which version-specific patches to use (see [Patch System](#patch-system) below).
 
+**Re-running for a different version:** `get_source.py` automatically resets patched repos (`git checkout . && git clean -fd`) before applying new patches, so switching between versions is safe without deleting `src/`.
+
 After cloning, `src/` looks like:
 
 ```
@@ -127,19 +129,27 @@ Output: `src/protobuf/build/protoc`
 ### Step 3: Build All Tools
 
 ```bash
-python3 build.py --protoc=$(pwd)/src/protobuf/build/protoc
+# Build with versioned build directory
+python3 build.py \
+    --protoc=$(pwd)/src/protobuf/build/protoc \
+    --build=build/build-tools-35.0.2
 ```
 
 Or build a single target:
 
 ```bash
-python3 build.py --protoc=$(pwd)/src/protobuf/build/protoc --target=aapt2
+python3 build.py \
+    --protoc=$(pwd)/src/protobuf/build/protoc \
+    --build=build/build-tools-35.0.2 \
+    --target=aapt2
 ```
 
-Output: all binaries go to `build/bin/` (flat directory, not organized by component):
+The `--build` flag controls where CMake output goes. Using `build/<component>-<version>` keeps builds isolated so you can have multiple versions built side by side.
+
+Output: all binaries go to `build/<component>-<version>/bin/` (flat directory):
 
 ```
-build/bin/
+build/build-tools-35.0.2/bin/
 ├── aapt2, aapt, aidl, zipalign, dexdump, split-select     # build-tools
 ├── adb, fastboot, sqlite3, etc1tool, hprof-conv            # platform-tools
 ├── mke2fs, e2fsdroid, make_f2fs, make_f2fs_casefold, sload_f2fs
@@ -153,11 +163,11 @@ Copy the binaries to the right places:
 ```bash
 # build-tools
 mkdir -p $ANDROID_HOME/build-tools/35.0.2
-cp build/bin/{aapt,aapt2,aidl,zipalign,dexdump,split-select} $ANDROID_HOME/build-tools/35.0.2/
+cp build/build-tools-35.0.2/bin/{aapt,aapt2,aidl,zipalign,dexdump,split-select} $ANDROID_HOME/build-tools/35.0.2/
 
 # platform-tools
 mkdir -p $ANDROID_HOME/platform-tools
-cp build/bin/{adb,fastboot,sqlite3,etc1tool,hprof-conv,mke2fs,e2fsdroid,make_f2fs,make_f2fs_casefold,sload_f2fs} $ANDROID_HOME/platform-tools/
+cp build/build-tools-35.0.2/bin/{adb,fastboot,sqlite3,etc1tool,hprof-conv,mke2fs,e2fsdroid,make_f2fs,make_f2fs_casefold,sload_f2fs} $ANDROID_HOME/platform-tools/
 ```
 
 Or just use `setup.sh` which does all of this automatically.
