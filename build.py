@@ -62,7 +62,7 @@ def build(args):
     config_h = protobuf_config_dir / "config.h"
     if not config_h.exists():
         import shutil as _shutil
-        _shutil.copy2("patches/misc/protobuf_config.h", config_h)
+        _shutil.copy2("patches/base/misc/protobuf_config.h", config_h)
 
     # Ninja build
     print("\n=== Building ===")

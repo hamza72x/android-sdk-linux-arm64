@@ -2,6 +2,10 @@
 #
 # Clone AOSP source repositories and apply patches for Linux ARM64 build.
 #
+# Patch resolution order:
+#   1. patches/<component>/<version>/<patch>   (version-specific override)
+#   2. patches/base/<patch>                    (base, applies to all versions)
+#
 # Adapted from https://github.com/lzhiyong/android-sdk-tools
 # Original: Copyright 2022 Github Lzhiyong (Apache 2.0)
 #
@@ -14,19 +18,54 @@ import json
 from pathlib import Path
 
 
-def apply_patch(repo_dir, patch_file):
+def resolve_patch(patch_file, component=None, version=None):
+    """Find the correct patch file, checking version-specific first, then base."""
+    if component and version:
+        versioned = Path("patches") / component / version / patch_file
+        if versioned.exists():
+            return versioned
+
+    base = Path("patches/base") / patch_file
+    if base.exists():
+        return base
+
+    return None
+
+
+def resolve_misc(misc_file, component=None, version=None):
+    """Find the correct misc file, checking version-specific first, then base."""
+    if component and version:
+        versioned = Path("patches") / component / version / "misc" / misc_file
+        if versioned.exists():
+            return versioned
+
+    base = Path("patches/base/misc") / misc_file
+    if base.exists():
+        return base
+
+    return None
+
+
+def apply_patch(repo_dir, patch_file, component=None, version=None):
     """Apply a git patch to a repo directory."""
-    patch_path = Path("patches") / patch_file
-    if not patch_path.exists():
-        print("WARNING: Patch file {} not found".format(patch_path))
+    patch_path = resolve_patch(patch_file, component, version)
+    if patch_path is None:
+        print("WARNING: Patch file {} not found".format(patch_file))
         return
+
     repo_path = Path("src") / repo_dir
     if not repo_path.exists():
         print("WARNING: Repo directory {} not found".format(repo_path))
         return
-    print("  Applying {} to src/{}".format(patch_file, repo_dir))
+
+    # Compute relative path from repo to patch
+    abs_patch = patch_path.resolve()
+    abs_repo = repo_path.resolve()
+    rel_patch = os.path.relpath(abs_patch, abs_repo)
+
+    print("  Applying {} -> src/{}".format(patch_path, repo_dir))
     result = subprocess.run(
-        "git apply --check ../../patches/{}".format(patch_file),
+        "git apply --check {}".format(rel_patch),
         shell=True, cwd=str(repo_path),
         capture_output=True, text=True,
     )
@@ -34,41 +73,53 @@ def apply_patch(repo_dir, patch_file):
         print("    (already applied or conflicts, skipping)")
         return
     subprocess.run(
-        "git apply ../../patches/{}".format(patch_file),
+        "git apply {}".format(rel_patch),
         shell=True, cwd=str(repo_path),
     )
 
 
-def patches():
+def patches(component=None, version=None):
     """Apply source patches needed for the build."""
+    print("Patch resolution: version-specific ({}/{}) -> base".format(
+        component or "*", version or "*"))
+
     # ── Pre-generated files ──
 
-    # Create include dir for incremental delivery sysprop
+    # Incremental delivery sysprop
     inc = Path.cwd() / "src/incremental_delivery/sysprop/include"
     if not inc.exists():
         inc.mkdir(parents=True)
-    shutil.copy2(Path("patches/misc/IncrementalProperties.sysprop.h"), inc)
-    shutil.copy2(Path("patches/misc/IncrementalProperties.sysprop.cpp"), inc.parent)
 
-    # Copy pre-generated deploy agent files for adb
+    src_file = resolve_misc("IncrementalProperties.sysprop.h", component, version)
+    if src_file:
+        shutil.copy2(src_file, inc)
+
+    src_file = resolve_misc("IncrementalProperties.sysprop.cpp", component, version)
+    if src_file:
+        shutil.copy2(src_file, inc.parent)
+
+    # Deploy agent files for adb
     deploy_dir = Path("src/adb/fastdeploy/deployagent")
     if deploy_dir.exists():
-        shutil.copy2(Path("patches/misc/deployagent.inc"), deploy_dir)
-        shutil.copy2(Path("patches/misc/deployagentscript.inc"), deploy_dir)
+        for fname in ["deployagent.inc", "deployagentscript.inc"]:
+            src_file = resolve_misc(fname, component, version)
+            if src_file:
+                shutil.copy2(src_file, deploy_dir)
 
-    # Copy platform tools version header
+    # Platform tools version header
     version_dir = Path("src/soong/cc/libbuildversion/include")
     if version_dir.exists():
-        shutil.copy2(Path("patches/misc/platform_tools_version.h"), version_dir)
+        src_file = resolve_misc("platform_tools_version.h", component, version)
+        if src_file:
+            shutil.copy2(src_file, version_dir)
 
-    # Copy protobuf config.h (needed by AOSP's protobuf common.cc)
+    # Protobuf config.h
     protobuf_build = Path("src/protobuf/build")
     if not protobuf_build.exists():
         protobuf_build.mkdir(parents=True)
-    shutil.copy2(Path("patches/misc/protobuf_config.h"), protobuf_build / "config.h")
-
-    # Copy dex_operator_out.cc (missing operator<< for ART enum)
-    # (already in patches/misc/, referenced directly by dexdump.cmake)
+    src_file = resolve_misc("protobuf_config.h", component, version)
+    if src_file:
+        shutil.copy2(src_file, protobuf_build / "config.h")
 
     # ── Sed-based fixups ──
 
@@ -87,8 +138,7 @@ def patches():
         subprocess.run("ln -sf {} {}".format(src, dest), shell=True)
 
     # ── Git diff patches ──
-    # These fix GCC 15 / Linux glibc compatibility issues in AOSP source code.
-    # See AGENTS.md "Discoveries" section for detailed descriptions.
+    # These fix GCC / Linux glibc compatibility issues in AOSP source code.
 
     patch_map = [
         ("libbase",              "libbase.patch"),
@@ -104,7 +154,7 @@ def patches():
     ]
 
     for repo_dir, patch_file in patch_map:
-        apply_patch(repo_dir, patch_file)
+        apply_patch(repo_dir, patch_file, component, version)
 
 
 def check(command):
@@ -126,6 +176,16 @@ def main():
         "--tags",
         default="master",
         help="Git tag or branch to clone (e.g. platform-tools-35.0.2)",
+    )
+    parser.add_argument(
+        "--component",
+        default=None,
+        help="Component name for version-specific patches (e.g. build-tools)",
+    )
+    parser.add_argument(
+        "--version",
+        default=None,
+        help="Version for version-specific patches (e.g. 35.0.2)",
     )
     args = parser.parse_args()
 
@@ -153,7 +213,7 @@ def main():
 
     # Apply patches
     print("\nApplying patches...")
-    patches()
+    patches(component=args.component, version=args.version)
 
     print("\nSource download complete!")
 

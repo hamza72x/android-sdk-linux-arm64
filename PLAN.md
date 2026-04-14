@@ -147,7 +147,8 @@ android-sdk-linux-arm64/
   AGENTS.md                     # Agent/contributor guide
   .gitignore                    # Ignore src/, build/
   repos.json                    # AOSP repository list (from lzhiyong)
-  get_source.py                 # AOSP source downloader (adapted)
+  versions.json                 # Version registry (status, AOSP tags, releases)
+  get_source.py                 # AOSP source downloader (version-aware patches)
   build.py                      # Linux native build orchestrator
   CMakeLists.txt                # Root CMake (adapted for Linux)
   build-tools/                  # CMake configs for build-tools
@@ -169,10 +170,15 @@ android-sdk-linux-arm64/
   others/                       # Additional tools
     CMakeLists.txt
     veridex.cmake
-  patches/                      # AOSP source patches
-    misc/                       # Pre-generated headers
-    *.patch                     # Compatibility patches
-  setup.sh                      # End-user installer script
+  patches/                      # AOSP source patches (versioned)
+    base/                       # Universal patches (GCC/glibc compat)
+      misc/                     # Pre-generated headers
+      *.patch                   # Compatibility patches
+    build-tools/<version>/      # Version-specific overrides
+      misc/                     # Version-specific generated files
+    platform-tools/<version>/   # Version-specific overrides
+      misc/                     # Version-specific generated files
+  setup.sh                      # SDK-manager-like CLI installer
   src/                          # [gitignored] AOSP source clones
   build/                        # [gitignored] Build output
 ```
@@ -191,7 +197,12 @@ For a Flutter project to build APKs on Linux ARM64, after running `setup.sh`:
 
 - GitHub Releases with pre-built aarch64 Linux binaries
 - Versioned to match Android build-tools versions (e.g., `35.0.2`)
-- Single `setup.sh` curl-pipe installer for end users
+- `versions.json` tracks verification status (`verified`/`unverified`/`shim`)
+- `setup.sh` provides SDK-manager-like CLI:
+  - `install-build-tools <ver>` / `install-platform-tools <ver>` — download pre-built
+  - `build-build-tools <ver>` / `build-platform-tools <ver>` — build from AOSP source
+  - `install-ndk <ver>` / `install-cmake [ver]` — create shims
+  - `doctor` / `status` — diagnostic and status commands
 - CI/CD via GitHub Actions ARM64 runners (when available) or self-hosted
 
 ## Known Limitations

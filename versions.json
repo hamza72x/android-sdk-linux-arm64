@@ -1,0 +1,72 @@
+{
+  "build-tools": {
+    "35.0.2": {
+      "status": "verified",
+      "aosp_tag": "platform-tools-35.0.2",
+      "release": "v35.0.2",
+      "tested_on": "Fedora Asahi 43, GCC 15.2.1",
+      "notes": "Fully tested with Flutter 3.43"
+    },
+    "35.0.1": {
+      "status": "unverified",
+      "aosp_tag": "platform-tools-35.0.1",
+      "notes": "Should work with base patches, not yet tested"
+    },
+    "35.0.0": {
+      "status": "unverified",
+      "aosp_tag": "platform-tools-35.0.0",
+      "notes": "Should work with base patches, not yet tested"
+    },
+    "34.0.0": {
+      "status": "unverified",
+      "aosp_tag": "platform-tools-34.0.4",
+      "notes": "Older AOSP, may need additional patches"
+    }
+  },
+  "platform-tools": {
+    "35.0.2": {
+      "status": "verified",
+      "aosp_tag": "platform-tools-35.0.2",
+      "release": "v35.0.2",
+      "tested_on": "Fedora Asahi 43, GCC 15.2.1",
+      "notes": "Fully tested: adb, fastboot, etc."
+    },
+    "35.0.1": {
+      "status": "unverified",
+      "aosp_tag": "platform-tools-35.0.1",
+      "notes": "Should work with base patches, not yet tested"
+    },
+    "34.0.4": {
+      "status": "unverified",
+      "aosp_tag": "platform-tools-34.0.4",
+      "notes": "Older AOSP, may need additional patches"
+    }
+  },
+  "cmake": {
+    "3.22.1": {
+      "status": "shim",
+      "notes": "Shim that delegates to system cmake. Created automatically."
+    }
+  },
+  "ndk": {
+    "28.2.13676358": {
+      "status": "shim",
+      "notes": "Shim for llvm-strip. Used by Flutter 3.43+."
+    },
+    "27.0.12077973": {
+      "status": "shim",
+      "notes": "Shim for llvm-strip. Used by older Flutter versions."
+    },
+    "26.1.10909125": {
+      "status": "shim",
+      "notes": "Shim for llvm-strip. Used by older Flutter versions."
+    }
+  },
+  "cmdline-tools": {
+    "latest": {
+      "status": "verified",
+      "url": "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip",
+      "notes": "Java-based, runs on any architecture."
+    }
+  }
+}

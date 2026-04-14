@@ -14,7 +14,8 @@ This project adapts [lzhiyong/android-sdk-tools](https://github.com/lzhiyong/and
 ├── AGENTS.md            # This file - project knowledge for agents/contributors
 ├── .gitignore           # Ignores src/ (AOSP clones) and build/ (output)
 ├── repos.json           # List of AOSP repos to clone (all android.googlesource.com)
-├── get_source.py        # Clones AOSP repos and applies patches
+├── versions.json        # Version registry: status, AOSP tags, release info
+├── get_source.py        # Clones AOSP repos and applies patches (version-aware)
 ├── build.py             # Build orchestrator (CMake + Ninja, Linux native)
 ├── CMakeLists.txt       # Root CMake configuration
 ├── build-tools/         # CMake definitions for build-tools binaries
@@ -58,18 +59,36 @@ This project adapts [lzhiyong/android-sdk-tools](https://github.com/lzhiyong/and
 ├── others/              # Additional tools
 │   ├── CMakeLists.txt
 │   └── veridex.cmake
-├── patches/             # Source patches for AOSP code
-│   ├── misc/            # Pre-generated headers and source files
-│   ├── libbase.patch    # Thread annotations + __builtin_available
-│   ├── logging.patch    # C11 stdatomic.h -> C++ atomic
-│   ├── core.patch       # Atomics, limits, __builtin_available, cstring
-│   ├── base.patch       # Missing includes, designated init, proto paths
-│   ├── incremental_delivery.patch  # Missing memory include, iterator ops
-│   ├── openscreen.patch # Missing includes, __has_feature guard
-│   ├── adb.patch        # Missing includes, flexible array member fix
-│   ├── aidl.patch       # Format attribute + template specialization
-│   ├── build.patch      # _Static_assert -> static_assert
-│   └── art.patch        # optnone attr, __builtin_available, limits
+├── patches/             # Source patches for AOSP code (versioned)
+│   ├── base/            # Universal patches (GCC/glibc compat, all versions)
+│   │   ├── misc/        # Pre-generated headers and source files
+│   │   │   ├── protobuf_config.h
+│   │   │   ├── deployagent.inc
+│   │   │   ├── deployagentscript.inc
+│   │   │   ├── dex_operator_out.cc
+│   │   │   ├── IncrementalProperties.sysprop.cpp
+│   │   │   ├── IncrementalProperties.sysprop.h
+│   │   │   └── platform_tools_version.h
+│   │   ├── libbase.patch
+│   │   ├── logging.patch
+│   │   ├── core.patch
+│   │   ├── base.patch
+│   │   ├── incremental_delivery.patch
+│   │   ├── openscreen.patch
+│   │   ├── adb.patch
+│   │   ├── aidl.patch
+│   │   ├── build.patch
+│   │   └── art.patch
+│   ├── build-tools/     # Version-specific overrides for build-tools
+│   │   └── 35.0.2/
+│   │       └── misc/
+│   │           └── platform_tools_version.h
+│   └── platform-tools/  # Version-specific overrides for platform-tools
+│       └── 35.0.2/
+│           └── misc/
+│               ├── deployagent.inc
+│               ├── deployagentscript.inc
+│               └── platform_tools_version.h
 ├── setup.sh             # End-user installer script
 ├── src/                 # [gitignored] AOSP source code (~38 repos)
 └── build/               # [gitignored] CMake build output
@@ -216,6 +235,74 @@ The `setup.sh` script handles all of this automatically.
 Project versions track Android build-tools versions:
 - Current target: **35.0.2** (matching `platform-tools-35.0.2` AOSP tag)
 - The `TOOLS_VERSION` variable in `CMakeLists.txt` controls this
+- `versions.json` is the central registry of all known versions, their verification status (`verified`/`unverified`/`shim`), AOSP tags, and release availability
+
+### Patch Resolution Order
+
+When `get_source.py` applies patches for a given component and version:
+1. **Version-specific first**: `patches/<component>/<version>/` (e.g. `patches/build-tools/35.0.2/`)
+2. **Base fallback**: `patches/base/` (universal GCC/glibc compatibility patches)
+
+For files in `misc/`, version-specific files override base files with the same name.
+
+### Concrete Example: Building `build-tools 35.0.2`
+
+When you run `./setup.sh build-build-tools 35.0.2`, here is the exact patch resolution:
+
+**Git patches** (applied to AOSP source in `src/`):
+```
+patches/build-tools/35.0.2/libbase.patch   → NOT FOUND → patches/base/libbase.patch ✓
+patches/build-tools/35.0.2/logging.patch   → NOT FOUND → patches/base/logging.patch ✓
+patches/build-tools/35.0.2/core.patch      → NOT FOUND → patches/base/core.patch ✓
+...etc for all 10 patches
+```
+
+**Misc files** (pre-generated headers/source copied into `src/`):
+```
+platform_tools_version.h:
+  patches/build-tools/35.0.2/misc/platform_tools_version.h ✓ (version-specific WINS)
+  patches/base/misc/platform_tools_version.h (ignored)
+
+protobuf_config.h:
+  patches/build-tools/35.0.2/misc/protobuf_config.h → NOT FOUND
+  patches/base/misc/protobuf_config.h ✓ (base fallback)
+
+deployagent.inc, deployagentscript.inc, etc:
+  patches/build-tools/35.0.2/misc/deployagent.inc → NOT FOUND
+  patches/base/misc/deployagent.inc ✓ (base fallback)
+```
+
+**For `platform-tools 35.0.2`**, the same logic applies but checks `patches/platform-tools/35.0.2/` first.
+
+**Misc files are copied to these destinations:**
+| File | Destination in `src/` |
+|------|----------------------|
+| `platform_tools_version.h` | `src/soong/cc/libbuildversion/include/` |
+| `protobuf_config.h` | `src/protobuf/build/config.h` |
+| `IncrementalProperties.sysprop.h` | `src/incremental_delivery/sysprop/include/` |
+| `IncrementalProperties.sysprop.cpp` | `src/incremental_delivery/sysprop/` |
+| `deployagent.inc` | `src/adb/fastdeploy/deployagent/` |
+| `deployagentscript.inc` | `src/adb/fastdeploy/deployagent/` |
+| `dex_operator_out.cc` | (compiled directly from `patches/base/misc/`) |
+
+## setup.sh CLI
+
+`setup.sh` is an SDK-manager-like CLI for managing Android SDK tools on Linux ARM64:
+
+| Command | Description |
+|---------|-------------|
+| `list-versions` | Show all available versions with status |
+| `install-build-tools <ver>` | Download pre-built (verified) or error with guidance |
+| `install-platform-tools <ver>` | Same for platform-tools |
+| `install-ndk <ver>` | Create NDK shim (llvm-strip -> system strip) |
+| `install-cmake [ver]` | Create CMake shim (filters Android flags) |
+| `install-cmd-tools` | Install sdkmanager |
+| `install-platforms [pkgs]` | Install Android platforms via sdkmanager |
+| `build-build-tools <ver>` | Build from AOSP source |
+| `build-platform-tools <ver>` | Build from AOSP source |
+| `doctor` | Diagnose setup (checks arch per build-tools version) |
+| `status` | Show what's installed |
+| `setup-gradle` | Configure `android.aapt2FromMavenOverride` |
 
 ## Troubleshooting
 
