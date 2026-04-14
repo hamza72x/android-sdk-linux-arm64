@@ -93,16 +93,23 @@ resolve_script_dir() {
 
 # Detect or ask for SDK root
 detect_sdk_root() {
-    if [[ -n "$SDK_ROOT" ]]; then return; fi
+    if [[ -n "$SDK_ROOT" ]]; then
+        info "SDK root: ${BOLD}${SDK_ROOT}${NC} (--sdk-root)"
+        return
+    fi
 
     if [[ -n "${ANDROID_HOME:-}" ]]; then
         SDK_ROOT="$ANDROID_HOME"
+        info "SDK root: ${BOLD}${SDK_ROOT}${NC} (from \$ANDROID_HOME)"
     elif [[ -n "${ANDROID_SDK_ROOT:-}" ]]; then
         SDK_ROOT="$ANDROID_SDK_ROOT"
+        info "SDK root: ${BOLD}${SDK_ROOT}${NC} (from \$ANDROID_SDK_ROOT)"
     elif [[ -d "$HOME/Android/Sdk" ]]; then
         SDK_ROOT="$HOME/Android/Sdk"
+        info "SDK root: ${BOLD}${SDK_ROOT}${NC} (found ~/Android/Sdk)"
     elif [[ -d "$HOME/android-sdk" ]]; then
         SDK_ROOT="$HOME/android-sdk"
+        info "SDK root: ${BOLD}${SDK_ROOT}${NC} (found ~/android-sdk)"
     else
         SDK_ROOT="$HOME/android-sdk"
         echo ""
@@ -114,6 +121,7 @@ detect_sdk_root() {
             *)       SDK_ROOT="$answer" ;;
         esac
         SDK_ROOT="${SDK_ROOT/#\~/$HOME}"
+        info "SDK root: ${BOLD}${SDK_ROOT}${NC} (new)"
     fi
 
     mkdir -p "$SDK_ROOT"
@@ -263,8 +271,9 @@ cmd_install_build_tools() {
     local bt_dir="$SDK_ROOT/build-tools/${version}"
 
     header "Install build-tools ${version}"
-    echo "  SDK root: $SDK_ROOT"
-    echo "  Status:   $status"
+    echo "  SDK root:    $SDK_ROOT"
+    echo "  Destination: $bt_dir"
+    echo "  Status:      $status"
     echo ""
 
     if [[ "$status" == "verified" ]]; then
@@ -327,8 +336,9 @@ cmd_install_platform_tools() {
     local pt_dir="$SDK_ROOT/platform-tools"
 
     header "Install platform-tools ${version}"
-    echo "  SDK root: $SDK_ROOT"
-    echo "  Status:   $status"
+    echo "  SDK root:    $SDK_ROOT"
+    echo "  Destination: $pt_dir"
+    echo "  Status:      $status"
     echo ""
 
     if [[ "$status" == "verified" ]]; then
@@ -522,20 +532,24 @@ cmd_build_platform_tools() {
 cmd_setup_gradle() {
     detect_sdk_root
 
-    # Find latest build-tools with aapt2
+    # Find latest build-tools with ARM64 aapt2
     local bt_dir="$SDK_ROOT/build-tools"
     local latest=""
     if [[ -d "$bt_dir" ]]; then
         for d in $(ls -d "$bt_dir"/*/ 2>/dev/null | sort -V -r); do
             if [[ -x "${d}aapt2" ]]; then
-                latest="${d}aapt2"
-                break
+                local ftype
+                ftype=$(file -b "${d}aapt2" 2>/dev/null)
+                if [[ "$ftype" == *"aarch64"* || "$ftype" == *"ARM aarch64"* ]]; then
+                    latest="${d}aapt2"
+                    break
+                fi
             fi
         done
     fi
 
     if [[ -z "$latest" ]]; then
-        die "No build-tools with aapt2 found in ${bt_dir}.\n  Install build-tools first: $0 install-build-tools <version>"
+        die "No ARM64 build-tools with aapt2 found in ${bt_dir}.\n  Install build-tools first: $0 install-build-tools <version>"
     fi
 
     configure_gradle "$latest"
@@ -862,6 +876,8 @@ configure_gradle() {
     local gradle_props="$HOME/.gradle/gradle.properties"
 
     info "Configuring Gradle aapt2 override..."
+    echo "  aapt2:  ${aapt2_path}"
+    echo "  config: ${gradle_props}"
     mkdir -p "$(dirname "$gradle_props")"
 
     if [[ -f "$gradle_props" ]]; then
@@ -876,6 +892,7 @@ create_ndk_shim() {
     local ndk_dir="$SDK_ROOT/ndk/${ndk_version}"
 
     info "Creating NDK ${ndk_version} shim..."
+    echo "  NDK dir:   ${ndk_dir}"
 
     local strip_bin
     strip_bin="$(find_strip)"
@@ -926,6 +943,7 @@ create_cmake_shim() {
     [[ -z "$sys_cmake" ]] && { warn "System cmake not found, skipping cmake shim."; return; }
 
     info "Creating CMake ${cmake_version} shim..."
+    echo "  CMake dir: ${cmake_dir}"
     mkdir -p "$cmake_dir"
 
     # If there's an existing x86_64 binary, back it up
@@ -1043,6 +1061,7 @@ download_and_install_release() {
     tar -xzf "$tmpdir/$downloaded" -C "$tmpdir"
 
     mkdir -p "$dest_dir"
+    info "Installing binaries to: ${BOLD}${dest_dir}${NC}"
 
     local bins_ref
     if [[ "$component" == "build-tools" ]]; then
@@ -1069,6 +1088,9 @@ download_and_install_release() {
             cp "$src" "$dest_dir/$bin"
             chmod +x "$dest_dir/$bin"
             ((installed++))
+            echo -e "    ${GREEN}+${NC} $bin"
+        else
+            echo -e "    ${YELLOW}-${NC} $bin ${DIM}(not found in tarball)${NC}"
         fi
     done
 
@@ -1122,6 +1144,13 @@ build_tools_from_source() {
             || die "Failed to clone repository."
     fi
 
+    echo ""
+    echo "  AOSP tag:    ${aosp_tag}"
+    echo "  Source dir:  ${build_dir}/src/ (~2-4 GB)"
+    echo "  Build dir:   ${build_dir}/build/"
+    echo "  Output:      ${build_dir}/build/bin/ (flat)"
+    echo ""
+
     # Clone AOSP sources
     info "Cloning AOSP sources (tag: ${aosp_tag})..."
     python3 "${build_dir}/get_source.py" --tags "$aosp_tag" \
@@ -1170,15 +1199,27 @@ build_tools_from_source() {
     if [[ "$component" == "build-tools" ]]; then
         local dest="$SDK_ROOT/build-tools/${version}"
         mkdir -p "$dest"
+        info "Copying build-tools binaries to: ${BOLD}${dest}${NC}"
         for bin in "${BUILD_TOOLS_BINS[@]}"; do
-            [[ -f "${build_bin}/${bin}" ]] && cp "${build_bin}/${bin}" "$dest/" && chmod +x "$dest/$bin"
+            if [[ -f "${build_bin}/${bin}" ]]; then
+                cp "${build_bin}/${bin}" "$dest/" && chmod +x "$dest/$bin"
+                echo -e "    ${GREEN}+${NC} $bin"
+            else
+                echo -e "    ${YELLOW}-${NC} $bin ${DIM}(not built)${NC}"
+            fi
         done
         ok "build-tools installed to ${dest}"
     else
         local dest="$SDK_ROOT/platform-tools"
         mkdir -p "$dest"
+        info "Copying platform-tools binaries to: ${BOLD}${dest}${NC}"
         for bin in "${PLATFORM_TOOLS_BINS[@]}"; do
-            [[ -f "${build_bin}/${bin}" ]] && cp "${build_bin}/${bin}" "$dest/" && chmod +x "$dest/$bin"
+            if [[ -f "${build_bin}/${bin}" ]]; then
+                cp "${build_bin}/${bin}" "$dest/" && chmod +x "$dest/$bin"
+                echo -e "    ${GREEN}+${NC} $bin"
+            else
+                echo -e "    ${YELLOW}-${NC} $bin ${DIM}(not built)${NC}"
+            fi
         done
         ok "platform-tools installed to ${dest}"
     fi
@@ -1260,6 +1301,14 @@ BANNER
     echo -e "  ${BOLD}OPTIONS${NC}"
     echo ""
     echo "    --sdk-root <path>    Override Android SDK directory"
+    echo ""
+    echo -e "  ${BOLD}SDK ROOT DETECTION${NC} ${DIM}(in priority order)${NC}"
+    echo ""
+    echo "    1. --sdk-root <path>        (if passed)"
+    echo "    2. \$ANDROID_HOME            (if set)"
+    echo "    3. \$ANDROID_SDK_ROOT        (if set)"
+    echo "    4. ~/Android/Sdk            (if exists)"
+    echo "    5. ~/android-sdk            (default, created if needed)"
     echo ""
     echo -e "  ${BOLD}QUICK START${NC}"
     echo ""

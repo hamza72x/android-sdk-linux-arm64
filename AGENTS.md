@@ -12,7 +12,11 @@ This project adapts [lzhiyong/android-sdk-tools](https://github.com/lzhiyong/and
 .
 ├── PLAN.md              # Detailed build plan and architecture
 ├── AGENTS.md            # This file - project knowledge for agents/contributors
+├── README.md            # User-facing documentation
 ├── .gitignore           # Ignores src/ (AOSP clones) and build/ (output)
+├── .github/workflows/   # CI/CD
+│   ├── ci.yml           # Sanity check on push to main (verified versions only)
+│   └── build.yml        # Build + Release on tag push (v*)
 ├── repos.json           # List of AOSP repos to clone (all android.googlesource.com)
 ├── versions.json        # Version registry: status, AOSP tags, release info
 ├── get_source.py        # Clones AOSP repos and applies patches (version-aware)
@@ -136,8 +140,9 @@ liblog is compiled with `-DFAKE_LOG_DEVICE=1` which routes Android logging to st
 
 ### Full Build
 ```bash
-# Clone AOSP sources
-python3 get_source.py --tags platform-tools-35.0.2
+# Clone AOSP sources (with version-specific patch resolution)
+python3 get_source.py --tags platform-tools-35.0.2 \
+    --component build-tools --version 35.0.2
 
 # Build host protoc
 cd src/protobuf && mkdir build && cd build
@@ -195,9 +200,9 @@ sudo apt install gcc g++ cmake ninja-build git python3 golang bison flex \
 
 ## Output Binaries
 
-After a successful build, binaries are in `build/bin/`:
+After a successful build, all binaries are in `build/bin/` (flat directory):
 
-### build-tools/
+### build-tools
 | Binary | Description |
 |--------|-------------|
 | `aapt` | Android Asset Packaging Tool (legacy) |
@@ -207,7 +212,7 @@ After a successful build, binaries are in `build/bin/`:
 | `dexdump` | DEX file disassembler/inspector |
 | `split-select` | APK split selection tool |
 
-### platform-tools/
+### platform-tools
 | Binary | Description |
 |--------|-------------|
 | `adb` | Android Debug Bridge |
@@ -215,9 +220,16 @@ After a successful build, binaries are in `build/bin/`:
 | `sqlite3` | SQLite CLI (Android version) |
 | `etc1tool` | ETC1 texture tool |
 | `hprof-conv` | HPROF converter |
-| `e2fsdroid` | ext4 filesystem tools |
+| `e2fsdroid` | ext4 filesystem tool |
 | `mke2fs` | ext4 filesystem creator |
 | `make_f2fs` | F2FS filesystem creator |
+| `make_f2fs_casefold` | F2FS filesystem creator (with casefolding) |
+| `sload_f2fs` | F2FS filesystem loader |
+
+### others
+| Binary | Description |
+|--------|-------------|
+| `veridex` | DEX file verifier |
 
 ## Flutter Integration
 

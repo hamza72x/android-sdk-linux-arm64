@@ -1,8 +1,45 @@
 # Android SDK Tools for Linux ARM64
 
+[![CI](https://github.com/hamza72x/android-sdk-linux-arm64/actions/workflows/ci.yml/badge.svg)](https://github.com/hamza72x/android-sdk-linux-arm64/actions/workflows/ci.yml)
+
 Native ARM64 (aarch64) builds of Android SDK tools — `aapt2`, `aapt`, `aidl`, `zipalign`, `adb`, `fastboot`, and more — compiled from official AOSP source code.
 
 Google does not publish ARM64 Linux builds of these tools. If you develop Android/Flutter apps on an ARM64 Linux machine (Asahi Linux on Apple Silicon, Raspberry Pi, Ampere/Graviton servers, etc.), this project provides them.
+
+## Set Up ANDROID_HOME
+
+Before using this tool, set `ANDROID_HOME` to tell the Android toolchain (and this script) where your SDK lives. Add to `~/.bashrc` or `~/.zshrc`:
+
+```bash
+export ANDROID_HOME="$HOME/android-sdk"
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+```
+
+Then `source ~/.bashrc` (or restart your shell).
+
+**How `setup.sh` finds your SDK root** (in priority order):
+1. `--sdk-root <path>` flag (if passed)
+2. `$ANDROID_HOME` environment variable
+3. `$ANDROID_SDK_ROOT` environment variable
+4. `~/Android/Sdk` (if it exists)
+5. `~/android-sdk` (default — created if needed)
+
+After install, your SDK directory will look like:
+
+```
+$ANDROID_HOME/
+├── build-tools/
+│   └── 35.0.2/           # aapt2, aapt, aidl, zipalign, dexdump, split-select
+├── platform-tools/        # adb, fastboot, sqlite3, mke2fs, etc.
+├── cmdline-tools/
+│   └── latest/            # sdkmanager, avdmanager (Java — works on any arch)
+├── platforms/
+│   └── android-35/        # Android SDK platform (Java — works on any arch)
+├── ndk/
+│   └── 28.2.13676358/    # Shim: llvm-strip → system strip
+└── cmake/
+    └── 3.22.1/           # Shim: cmake → system cmake (filters Android flags)
+```
 
 ## Quick Start
 
@@ -56,26 +93,6 @@ $ ./setup.sh list-versions
 - **Verified** — We tested these. Pre-built ARM64 binaries are available as GitHub Releases. Just `install-*` and go.
 - **Unverified** — Listed in the registry but not yet tested by us. You can build from source with `build-*` commands. If it works, submit a PR to mark it verified.
 - **Shim** — Not a real build. A lightweight wrapper that delegates to your system's native tools (e.g., `llvm-strip` -> system `strip`, `cmake` -> system `cmake`).
-
-### Patch Architecture
-
-Patches fix GCC/glibc compatibility issues in AOSP code (which is written for Clang/Bionic):
-
-```
-patches/
-  base/                  # Universal patches — apply to all AOSP versions
-    *.patch              #   GCC compat, missing includes, atomics, etc.
-    misc/                #   Pre-generated source files
-  build-tools/
-    35.0.2/              # Version-specific overrides (tested)
-      *.patch            #   Patches that differ from base for this version
-      misc/              #   Version-specific generated files
-  platform-tools/
-    35.0.2/
-      misc/
-```
-
-Resolution order: **version-specific first, then base**. If `patches/build-tools/35.0.2/libbase.patch` exists it's used; otherwise `patches/base/libbase.patch` is used. This lets you override individual patches per version while sharing the common ones.
 
 ## Commands Reference
 
@@ -165,12 +182,7 @@ cd ~/my-flutter-project
 
 ### 3. Set environment variables
 
-Add to `~/.bashrc` or `~/.zshrc`:
-
-```bash
-export ANDROID_HOME="$HOME/android-sdk"
-export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
-```
+If you haven't already, follow the [Set Up ANDROID_HOME](#set-up-android_home) section above.
 
 ### 4. Build
 
@@ -180,9 +192,9 @@ flutter build apk --debug
 
 > **Note:** Release builds require Flutter's `gen_snapshot` AOT compiler which may not have a Linux ARM64 build depending on your Flutter version.
 
-## Building from Source (Development)
+## Building from Source
 
-### Prerequisites
+The `build-*` commands (see [Build Commands](#build-commands) above) handle everything automatically. You just need build dependencies installed first:
 
 **Fedora / RHEL / Asahi Linux:**
 ```bash
@@ -196,45 +208,24 @@ sudo apt install gcc g++ cmake ninja-build git python3 golang bison flex \
     zlib1g-dev libssl-dev libusb-1.0-0-dev libpcre2-dev libexpat1-dev libpng-dev
 ```
 
-Also required: **JDK 17+** (for sdkmanager).
-
-### Manual Build
+Then:
 
 ```bash
-# Clone sources
-python3 get_source.py --tags platform-tools-35.0.2 \
-    --component build-tools --version 35.0.2
-
-# Build protoc
-cd src/protobuf && mkdir -p build && cd build
-cmake -GNinja -Dprotobuf_BUILD_TESTS=OFF ..
-ninja -j$(nproc) protoc
-cd ../../..
-
-# Build everything
-python3 build.py --protoc=$(pwd)/src/protobuf/build/protoc
-
-# Build single target
-python3 build.py --protoc=$(pwd)/src/protobuf/build/protoc --target=aapt2
+./setup.sh build-build-tools 35.0.2
+./setup.sh build-platform-tools 35.0.2
 ```
 
-## Contributing New Versions
+This clones ~38 AOSP repos (~2-4 GB), applies GCC/glibc compatibility patches, builds everything with CMake + Ninja, and installs the binaries into `$ANDROID_HOME`.
 
-If you test a new version:
+> For manual build steps, internal architecture, and patch system details, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-1. Add the version to `versions.json` with `"status": "unverified"`
-2. Try building: `./setup.sh build-build-tools <version>`
-3. If base patches work, just update the status to `"verified"` and add the `"release"` tag
-4. If patches need changes, create version-specific overrides in `patches/build-tools/<version>/`
-5. Submit a PR
+## Contributing
 
-Version-specific patches override base patches by filename. For example, if `openscreen.patch` needs a different fix for version 36.0.0:
-
-```
-patches/
-  base/openscreen.patch            # Used by all other versions
-  build-tools/36.0.0/openscreen.patch  # Used only for 36.0.0
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- How the build system works internally (`get_source.py`, `build.py`, CMake)
+- The patch system (base vs version-specific, resolution order)
+- How to add and test new AOSP versions
+- CI/CD workflows
 
 ## What's Included
 
@@ -261,6 +252,14 @@ patches/
 | `mke2fs` | ext4 filesystem creator |
 | `e2fsdroid` | ext4 filesystem tool |
 | `make_f2fs` | F2FS filesystem creator |
+| `make_f2fs_casefold` | F2FS filesystem creator (with casefolding) |
+| `sload_f2fs` | F2FS filesystem loader |
+
+### others
+
+| Binary | Description |
+|--------|-------------|
+| `veridex` | DEX file verifier |
 
 ### Already works on ARM64 (Java-based)
 
@@ -307,6 +306,12 @@ Expected. sdkmanager downloads x86_64 packages since Google doesn't publish ARM6
 - Asahi Linux (Fedora 43) on Apple Silicon (M1/M2)
 - GCC 15.2.1, CMake 3.31, Ninja 1.13
 - Flutter 3.43.0, AGP 8.7.0
+- GitHub Actions `ubuntu-24.04-arm` (CI)
+
+## CI
+
+- **Push to `main`** / **PRs**: Builds all verified versions and verifies every binary is ARM64 ([CI workflow](.github/workflows/ci.yml))
+- **Tag push** (`v*`): Full build + creates GitHub Release with tarballs ([Release workflow](.github/workflows/build.yml))
 
 ## Source & Security
 

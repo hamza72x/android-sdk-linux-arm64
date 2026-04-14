@@ -32,8 +32,7 @@ This project adapts [lzhiyong/android-sdk-tools](https://github.com/lzhiyong/and
 - **All source code** comes from `https://android.googlesource.com/platform/...` (official AOSP mirrors) -- verified in `repos.json`
 - **Build scripts** (`get_source.py`, `build.py`) are clean Python -- no network calls during build, no suspicious code
 - **CMake files** are standard `add_library`/`add_executable` patterns referencing only AOSP source
-- **Patches** are small compatibility fixes (proto import paths, pre-generated headers)
-- **Dead code**: `get_source.py` has an unused `download()` function (never called from `main()`)
+- **Patches** are small compatibility fixes (GCC/glibc compat, pre-generated headers)
 - **License**: Apache 2.0
 
 ## Architecture
@@ -96,10 +95,12 @@ sudo apt install gcc g++ cmake ninja-build git python3 golang bison flex \
 ### Phase 1: Clone AOSP Sources
 
 ```bash
-python3 get_source.py --tags platform-tools-35.0.2
+python3 get_source.py --tags platform-tools-35.0.2 \
+    --component build-tools --version 35.0.2
 ```
 
 Clones ~38 AOSP repos into `src/` (shallow clones, ~2-4 GB total).
+Applies patches with version-specific resolution (see `patches/` structure).
 
 ### Phase 2: Build Host Protobuf (protoc)
 
@@ -119,7 +120,8 @@ python3 build.py --protoc=$(pwd)/src/protobuf/build/protoc
 
 This runs CMake + Ninja targeting the following executables:
 - **build-tools**: `aapt`, `aapt2`, `aidl`, `zipalign`, `dexdump`, `split-select`
-- **platform-tools**: `adb`, `fastboot`, `sqlite3`, `etc1tool`, `hprof-conv`, `e2fsprogs`, `f2fs-tools`
+- **platform-tools**: `adb`, `fastboot`, `sqlite3`, `etc1tool`, `hprof-conv`, `mke2fs`, `e2fsdroid`, `make_f2fs`, `make_f2fs_casefold`, `sload_f2fs`
+- **others**: `veridex`
 
 ### Phase 4: Validate
 
@@ -145,7 +147,11 @@ The `setup.sh` script automates this:
 android-sdk-linux-arm64/
   PLAN.md                       # This file
   AGENTS.md                     # Agent/contributor guide
+  README.md                     # User-facing documentation
   .gitignore                    # Ignore src/, build/
+  .github/workflows/            # CI/CD
+    ci.yml                      # Sanity check on push to main
+    build.yml                   # Build + Release on tag push
   repos.json                    # AOSP repository list (from lzhiyong)
   versions.json                 # Version registry (status, AOSP tags, releases)
   get_source.py                 # AOSP source downloader (version-aware patches)
@@ -203,7 +209,9 @@ For a Flutter project to build APKs on Linux ARM64, after running `setup.sh`:
   - `build-build-tools <ver>` / `build-platform-tools <ver>` — build from AOSP source
   - `install-ndk <ver>` / `install-cmake [ver]` — create shims
   - `doctor` / `status` — diagnostic and status commands
-- CI/CD via GitHub Actions ARM64 runners (when available) or self-hosted
+- CI/CD via GitHub Actions `ubuntu-24.04-arm` runner:
+  - `ci.yml`: Sanity check on push to main (builds verified versions only)
+  - `build.yml`: Full build + GitHub Release on tag push (`v*`)
 
 ## Known Limitations
 

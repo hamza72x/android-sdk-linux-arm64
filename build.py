@@ -86,13 +86,10 @@ def build(args):
         bin_dir = Path(build_dir) / "bin"
         if bin_dir.exists():
             print("\nBuilt binaries:")
-            for subdir in ["build-tools", "platform-tools", "others"]:
-                d = bin_dir / subdir
-                if d.exists():
-                    for f in sorted(d.iterdir()):
-                        if f.is_file() and os.access(f, os.X_OK):
-                            size_mb = f.stat().st_size / (1024 * 1024)
-                            print("  {}: {:.1f} MB".format(f, size_mb))
+            for f in sorted(bin_dir.iterdir()):
+                if f.is_file() and os.access(f, os.X_OK):
+                    size_mb = f.stat().st_size / (1024 * 1024)
+                    print("  {}: {:.1f} MB".format(f.name, size_mb))
     else:
         print("\n\033[1;31mBuild failed!\033[0m")
 

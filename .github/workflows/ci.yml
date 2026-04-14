@@ -1,0 +1,95 @@
+#
+# Sanity check: verify that all verified versions build successfully.
+#
+# Triggers on push to main (and PRs targeting main).
+# Does NOT create releases — just confirms the build works.
+#
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  BUILD_TOOLS_BINS: "aapt aapt2 aidl zipalign dexdump split-select"
+  PLATFORM_TOOLS_BINS: "adb fastboot sqlite3 etc1tool hprof-conv mke2fs e2fsdroid make_f2fs make_f2fs_casefold sload_f2fs"
+
+jobs:
+  build:
+    name: Build (Linux ARM64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+
+    strategy:
+      matrix:
+        # Only verified versions — update this list when new versions are verified
+        version: ["35.0.2"]
+        include:
+          - version: "35.0.2"
+            aosp_tag: "platform-tools-35.0.2"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ cmake ninja-build git python3 golang bison flex \
+            zlib1g-dev libssl-dev libusb-1.0-0-dev libpcre2-dev \
+            libexpat1-dev libpng-dev file
+
+      - name: Clone AOSP sources
+        run: |
+          python3 get_source.py \
+            --tags "${{ matrix.aosp_tag }}" \
+            --component build-tools \
+            --version "${{ matrix.version }}"
+
+      - name: Build protoc
+        run: |
+          mkdir -p src/protobuf/build
+          VERSION="${{ matrix.version }}"
+          if [[ -f "patches/build-tools/${VERSION}/misc/protobuf_config.h" ]]; then
+            cp "patches/build-tools/${VERSION}/misc/protobuf_config.h" src/protobuf/build/config.h
+          else
+            cp patches/base/misc/protobuf_config.h src/protobuf/build/config.h
+          fi
+          cmake -GNinja \
+            -B src/protobuf/build \
+            -S src/protobuf \
+            -Dprotobuf_BUILD_TESTS=OFF
+          ninja -C src/protobuf/build -j$(nproc) protoc
+
+      - name: Build SDK tools
+        run: |
+          python3 build.py --protoc="$(pwd)/src/protobuf/build/protoc"
+
+      - name: Verify binaries are ARM64
+        run: |
+          echo "=== Verifying ${{ matrix.version }} ==="
+          failed=0
+          for bin in $BUILD_TOOLS_BINS $PLATFORM_TOOLS_BINS veridex; do
+            path="build/bin/${bin}"
+            if [[ -x "$path" ]]; then
+              ftype=$(file -b "$path")
+              if [[ "$ftype" == *"aarch64"* || "$ftype" == *"ARM aarch64"* ]]; then
+                size=$(stat -c%s "$path")
+                echo "OK: ${bin} ($(( size / 1024 )) KB)"
+              else
+                echo "FAIL: ${bin} is not ARM64: ${ftype}"
+                failed=1
+              fi
+            else
+              echo "MISSING: ${bin}"
+              failed=1
+            fi
+          done
+          if [[ $failed -ne 0 ]]; then
+            echo "::error::Binary verification failed"
+            exit 1
+          fi
+          echo "All binaries verified as ARM64."
