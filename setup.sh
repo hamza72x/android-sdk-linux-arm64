@@ -13,6 +13,7 @@
 #   ./setup.sh install-cmake 3.22.1          # Create CMake shim
 #   ./setup.sh install-cmd-tools             # Install sdkmanager
 #   ./setup.sh install-platforms android-35   # Install Android platform
+#   ./setup.sh build-all                     # Build + install everything
 #   ./setup.sh build-build-tools 35.0.2      # Build from AOSP source
 #   ./setup.sh build-platform-tools 35.0.2   # Build from AOSP source
 #   ./setup.sh doctor                        # Diagnose setup
@@ -525,6 +526,139 @@ cmd_build_platform_tools() {
     detect_sdk_root
     build_tools_from_source "platform-tools" "$version"
     ok "platform-tools ${version} built and installed."
+}
+
+# ── build-all ──────────────────────────────────────────────────────────────────
+
+# Get the first verified (or shim) version for a component from versions.json
+get_default_version() {
+    local component="$1"
+    local json
+    json="$(get_versions_json)"
+    echo "$json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+component = sys.argv[1]
+entries = data.get(component, {})
+for ver, info in entries.items():
+    if info.get('status') in ('verified', 'shim'):
+        print(ver)
+        sys.exit(0)
+sys.exit(1)
+" "$component" 2>/dev/null
+}
+
+cmd_build_all() {
+    local bt_version="" pt_version="" ndk_version="" cmake_version="3.22.1"
+    local skip_ndk=false skip_cmake=false skip_cmd_tools=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --sdk-root)       SDK_ROOT="$2"; shift 2 ;;
+            --build-tools)    bt_version="$2"; shift 2 ;;
+            --platform-tools) pt_version="$2"; shift 2 ;;
+            --ndk)            ndk_version="$2"; shift 2 ;;
+            --cmake)          cmake_version="$2"; shift 2 ;;
+            --skip-ndk)       skip_ndk=true; shift ;;
+            --skip-cmake)     skip_cmake=true; shift ;;
+            --skip-cmd-tools) skip_cmd_tools=true; shift ;;
+            *) die "Unknown option: $1" ;;
+        esac
+    done
+
+    check_arch
+    detect_sdk_root
+
+    # Resolve default versions from versions.json
+    if [[ -z "$bt_version" ]]; then
+        bt_version="$(get_default_version "build-tools" 2>/dev/null || echo "")"
+        [[ -z "$bt_version" ]] && die "No verified build-tools version found in versions.json"
+    fi
+    if [[ -z "$pt_version" ]]; then
+        pt_version="$(get_default_version "platform-tools" 2>/dev/null || echo "")"
+        [[ -z "$pt_version" ]] && die "No verified platform-tools version found in versions.json"
+    fi
+    if [[ -z "$ndk_version" ]] && [[ "$skip_ndk" == false ]]; then
+        ndk_version="$(get_default_version "ndk" 2>/dev/null || echo "")"
+        [[ -z "$ndk_version" ]] && skip_ndk=true
+    fi
+
+    header "Build All"
+    echo ""
+    echo "  SDK root:        ${SDK_ROOT}"
+    echo "  build-tools:     ${bt_version}"
+    echo "  platform-tools:  ${pt_version}"
+    if [[ "$skip_ndk" == false ]]; then
+        echo "  NDK shim:        ${ndk_version}"
+    fi
+    if [[ "$skip_cmake" == false ]]; then
+        echo "  CMake shim:      ${cmake_version}"
+    fi
+    if [[ "$skip_cmd_tools" == false ]]; then
+        echo "  cmd-tools:       latest"
+    fi
+    echo ""
+
+    # 1. Build build-tools
+    header "1/5  build-tools ${bt_version}"
+    build_tools_from_source "build-tools" "$bt_version"
+    local bt_dir="$SDK_ROOT/build-tools/${bt_version}"
+    create_source_properties "$bt_dir" "Android SDK Build-Tools ${bt_version}" "$bt_version"
+    ok "build-tools ${bt_version} installed."
+
+    # 2. Build platform-tools
+    header "2/5  platform-tools ${pt_version}"
+    build_tools_from_source "platform-tools" "$pt_version"
+    ok "platform-tools ${pt_version} installed."
+
+    # 3. NDK shim
+    if [[ "$skip_ndk" == false ]]; then
+        header "3/5  NDK shim ${ndk_version}"
+        create_ndk_shim "$ndk_version"
+        ok "NDK ${ndk_version} shim ready."
+    else
+        info "3/5  NDK shim: skipped"
+    fi
+
+    # 4. CMake shim
+    if [[ "$skip_cmake" == false ]]; then
+        header "4/5  CMake shim ${cmake_version}"
+        create_cmake_shim "$cmake_version"
+        ok "CMake ${cmake_version} shim ready."
+    else
+        info "4/5  CMake shim: skipped"
+    fi
+
+    # 5. Command-line tools
+    if [[ "$skip_cmd_tools" == false ]]; then
+        header "5/5  Command-line tools"
+        if check_command java; then
+            ensure_cmdline_tools
+            accept_licenses
+            ok "Command-line tools installed."
+        else
+            warn "Java not found — skipping cmd-tools (install JDK 17+ to enable)."
+        fi
+    else
+        info "5/5  Command-line tools: skipped"
+    fi
+
+    # Configure gradle
+    if [[ -f "$SDK_ROOT/build-tools/${bt_version}/aapt2" ]]; then
+        configure_gradle "$SDK_ROOT/build-tools/${bt_version}/aapt2"
+    fi
+
+    echo ""
+    header "Done"
+    ok "All components installed to: ${SDK_ROOT}"
+    echo ""
+    echo "  Next steps:"
+    echo "    export ANDROID_HOME=\"${SDK_ROOT}\""
+    echo "    export PATH=\"\$ANDROID_HOME/platform-tools:\$ANDROID_HOME/cmdline-tools/latest/bin:\$PATH\""
+    echo ""
+    echo "    ./setup.sh doctor        # verify everything"
+    echo "    ./setup.sh status        # see what's installed"
+    echo ""
 }
 
 # ── setup-gradle ───────────────────────────────────────────────────────────────
@@ -1290,8 +1424,9 @@ BANNER
     echo "    install-cmd-tools                 Install sdkmanager"
     echo "    install-platforms [packages]      Install Android platforms"
     echo ""
-    echo -e "  ${BOLD}BUILD COMMANDS${NC} ${DIM}(for unverified versions)${NC}"
+    echo -e "  ${BOLD}BUILD COMMANDS${NC} ${DIM}(from AOSP source)${NC}"
     echo ""
+    echo "    build-all                         Build + install everything (default versions)"
     echo "    build-build-tools <version>       Build build-tools from AOSP source"
     echo "    build-platform-tools <version>    Build platform-tools from AOSP source"
     echo ""
@@ -1349,6 +1484,7 @@ main() {
         install-platforms)      cmd_install_platforms "$@" ;;
         build-build-tools)      cmd_build_build_tools "$@" ;;
         build-platform-tools)   cmd_build_platform_tools "$@" ;;
+        build-all)              cmd_build_all "$@" ;;
         setup-gradle)           cmd_setup_gradle "$@" ;;
         doctor)                 cmd_doctor "$@" ;;
         status)                 cmd_status "$@" ;;
